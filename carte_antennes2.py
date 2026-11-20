@@ -57,6 +57,12 @@ print("Installations avec 5G :", df["a_5g"].sum(), "sur", len(df))
 carte = folium.Map(location=[49.44, 1.10], zoom_start=9)
 groupe = MarkerCluster().add_to(carte)
 
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    attr="Tiles © Esri",
+    name="Esri World Street Map"
+).add_to(carte)
+
 for _, ligne in df.iterrows():
     texte = f"""
     <b>Exploitant :</b> {ligne['ADM_LB_NOM']}<br>
