@@ -1,6 +1,6 @@
 import pandas as pd
 import folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, FeatureGroupSubGroup
 
 support = pd.read_csv("data/data/sup_support.txt", sep=";", dtype=str)
 station = pd.read_csv("data/data/sup_station.txt", sep=";", dtype=str)
@@ -47,23 +47,53 @@ df = df.merge(nb_emetteurs, on="STA_NM_ANFR", how="left")
 df = df.merge(systemes, on="STA_NM_ANFR", how="left")
 df = df.merge(frequences, on="STA_NM_ANFR", how="left")
 df["systemes"] = df["systemes"].fillna("Inconnu")
+
 df["a_5g"] = df["systemes"].str.contains("5G")
+df["orange"] = df["ADM_LB_NOM"].str.contains("ORANGE")
+df["sfr"] = df["ADM_LB_NOM"].str.contains("SFR")
+df["free"] = df["ADM_LB_NOM"].str.contains("FREE")
+df["bouygues"] = df["ADM_LB_NOM"].str.contains("BOUYGUES")
+df["sncf"] = df["ADM_LB_NOM"].str.contains("SNCF")
+
 
 print(df["ADM_LB_NOM"].value_counts().head(10))
 print(df.groupby("ADM_LB_NOM")["nb_antennes"].mean().sort_values(ascending=False).head(10))
 print(emetteur["EMR_LB_SYSTEME"].value_counts().head(10))
-print("Installations avec 5G :", df["a_5g"].sum(), "sur", len(df))
 
-carte = folium.Map(location=[49.44, 1.10], zoom_start=9)
-groupe = MarkerCluster().add_to(carte)
+print("Installations à Orange :", df["orange"].sum(), "sur", len(df))
+print("Installations à SFR :", df["sfr"].sum(), "sur", len(df))
+print("Installations à FREE :", df["free"].sum(), "sur", len(df))
+print("Installations à Bouygues :", df["bouygues"].sum(), "sur", len(df))
+print("Installations à SNCF :", df["sncf"].sum(), "sur", len(df))
+
+carte = folium.Map(
+    location=[49.44, 1.10],
+    zoom_start=9,
+    tiles=None
+)
 
 folium.TileLayer(
     tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
     attr="Tiles © Esri",
-    name="Esri World Street Map"
+    name="Esri World Street Map",
+    control=False
 ).add_to(carte)
 
+cluster = MarkerCluster(
+    options={
+        "maxClusterRadius": 15,
+        "disableClusteringAtZoom": 11
+    },
+    control=False
+).add_to(carte)
+
+exploitants = {
+    nom: FeatureGroupSubGroup(cluster, nom).add_to(carte)
+    for nom in ["Orange", "SFR", "Free", "Bouygues", "SNCF", "Autres"]
+}
+
 for _, ligne in df.iterrows():
+
     texte = f"""
     <b>Exploitant :</b> {ligne['ADM_LB_NOM']}<br>
     <b>Propriétaire :</b> {ligne['TPO_LB']}<br>
@@ -73,10 +103,42 @@ for _, ligne in df.iterrows():
     <b>Antennes :</b> {ligne['nb_antennes']}<br>
     <b>Émetteurs :</b> {ligne['nb_emetteurs']}<br>
     <b>Systèmes :</b> {ligne['systemes']}<br>
-    <b>Fréquences :</b> {ligne['f_min']} - {ligne['f_max']} MHz
+    <b>Fréquences :</b> {ligne['f_min']} - {ligne['f_max']} MHz<br>
+    <b>Contient de la 5G :</b> {ligne['a_5g']}
     """
-    couleur = "green" if ligne["a_5g"] else "blue"
-    folium.Marker([ligne["lat"], ligne["lon"]], popup=folium.Popup(texte, max_width=300),
-                  icon=folium.Icon(color=couleur)).add_to(groupe)
+
+    if ligne['orange']:
+        couleur = "orange"
+        exploitant = "Orange"
+
+    elif ligne['sfr']:
+        couleur = "red"
+        exploitant = "SFR"
+
+    elif ligne['free']:
+        couleur = "#E6E6E6"
+        exploitant = "Free"
+
+    elif ligne['bouygues']:
+        couleur = "#FFEE00"
+        exploitant = "Bouygues"
+
+    elif ligne['sncf']:
+        couleur = "#100E75"
+        exploitant = "SNCF"
+
+    else:
+        couleur = "#006110"
+        exploitant = "Autres"
+
+    folium.Marker(
+        [ligne["lat"], ligne["lon"]],
+        popup=folium.Popup(texte, max_width=300),
+        icon=folium.Icon(color=couleur)
+    ).add_to(exploitants[exploitant])
+
+folium.LayerControl(
+    collapsed=False
+).add_to(carte)
 
 carte.save("carte_antennes.html")

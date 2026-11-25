@@ -16,7 +16,7 @@ Installation : pip install pandas folium
 
 import pandas as pd
 import folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, FeatureGroupSubGroup
 
 # ----------------------------------------------------------------------
 # 1. CHARGEMENT DES DONNÉES
@@ -129,6 +129,12 @@ df["systemes"] = df["systemes"].fillna("Inconnu")
 
 # Nouvelle colonne True/False : l'installation a-t-elle de la 5G ?
 df["a_5g"] = df["systemes"].str.contains("5G")
+df["orange"] = df["ADM_LB_NOM"].str.contains("ORANGE")
+df["sfr"] = df["ADM_LB_NOM"].str.contains("SFR")
+df["free"] = df["ADM_LB_NOM"].str.contains("FREE")
+df["bouygues"] = df["ADM_LB_NOM"].str.contains("BOUYGUES")
+df["sncf"] = df["ADM_LB_NOM"].str.contains("SNCF")
+
 
 # ----------------------------------------------------------------------
 # 6. STATISTIQUES (affichées dans la console)
@@ -143,20 +149,50 @@ print(df.groupby("ADM_LB_NOM")["nb_antennes"].mean().sort_values(ascending=False
 print(emetteur["EMR_LB_SYSTEME"].value_counts().head(10))
 
 # a_5g contient des True/False : sum() compte les True
-print("Installations avec 5G :", df["a_5g"].sum(), "sur", len(df))
+
+print("Installations à Orange :", df["orange"].sum(), "sur", len(df))
+print("Installations à SFR :", df["sfr"].sum(), "sur", len(df))
+print("Installations à FREE :", df["free"].sum(), "sur", len(df))
+print("Installations à Bouygues :", df["bouygues"].sum(), "sur", len(df))
+print("Installations à SNCF :", df["sncf"].sum(), "sur", len(df))
 
 # ----------------------------------------------------------------------
 # 7. CARTE FOLIUM
 # ----------------------------------------------------------------------
 # Carte centrée sur Rouen (latitude, longitude), zoom de départ = 9
-carte = folium.Map(location=[49.44, 1.10], zoom_start=9)
+# Création de la carte sans fond par défaut
+carte = folium.Map(
+    location=[49.44, 1.10],
+    zoom_start=9,
+    tiles=None
+)
 
-# MarkerCluster regroupe les points proches pour garder une carte fluide
-groupe = MarkerCluster().add_to(carte)
+# Fond Esri imposé
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    attr="Tiles © Esri",
+    name="Esri World Street Map",
+    control=False
+).add_to(carte)
 
-# On parcourt le tableau ligne par ligne : un marqueur par ligne
+# Un seul MarkerCluster commun
+cluster = MarkerCluster(
+    options={
+        "maxClusterRadius": 15,
+        "disableClusteringAtZoom": 11
+    },
+    control=False
+).add_to(carte)
+
+# Création des sous-groupes pour les filtres
+exploitants = {
+    nom: FeatureGroupSubGroup(cluster, nom).add_to(carte)
+    for nom in ["Orange", "SFR", "Free", "Bouygues", "SNCF", "Autres"]
+}
+
+# Parcours des antennes
 for _, ligne in df.iterrows():
-    # Texte affiché au clic sur le marqueur (le HTML est autorisé)
+
     texte = f"""
     <b>Exploitant :</b> {ligne['ADM_LB_NOM']}<br>
     <b>Propriétaire :</b> {ligne['TPO_LB']}<br>
@@ -166,15 +202,44 @@ for _, ligne in df.iterrows():
     <b>Antennes :</b> {ligne['nb_antennes']}<br>
     <b>Émetteurs :</b> {ligne['nb_emetteurs']}<br>
     <b>Systèmes :</b> {ligne['systemes']}<br>
-    <b>Fréquences :</b> {ligne['f_min']} - {ligne['f_max']} MHz
+    <b>Fréquences :</b> {ligne['f_min']} - {ligne['f_max']} MHz<br>
+    <b>Contient de la 5G :</b> {ligne['a_5g']}
     """
 
-    # Vert si l'installation a de la 5G, bleu sinon
-    couleur = "green" if ligne["a_5g"] else "blue"
+    if ligne['orange']:
+        couleur = "orange"
+        exploitant = "Orange"
 
-    folium.Marker([ligne["lat"], ligne["lon"]],
-                  popup=folium.Popup(texte, max_width=300),
-                  icon=folium.Icon(color=couleur)).add_to(groupe)
+    elif ligne['sfr']:
+        couleur = "red"
+        exploitant = "SFR"
 
-# Sauvegarde en fichier HTML : à ouvrir dans un navigateur
+    elif ligne['free']:
+        couleur = "#E6E6E6"
+        exploitant = "Free"
+
+    elif ligne['bouygues']:
+        couleur = "#FFEE00"
+        exploitant = "Bouygues"
+
+    elif ligne['sncf']:
+        couleur = "#100E75"
+        exploitant = "SNCF"
+
+    else:
+        couleur = "#006110"
+        exploitant = "Autres"
+
+    folium.Marker(
+        [ligne["lat"], ligne["lon"]],
+        popup=folium.Popup(texte, max_width=300),
+        icon=folium.Icon(color=couleur)
+    ).add_to(exploitants[exploitant])
+
+# Contrôle des filtres
+folium.LayerControl(
+    collapsed=False
+).add_to(carte)
+
+# Sauvegarde
 carte.save("carte_antennes.html")
